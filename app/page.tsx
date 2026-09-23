@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Maximize, Minimize, Volume2, VolumeX, ShieldAlert, CheckCircle, Crosshair, ChevronRight, RefreshCw, Eye, Trophy, AlertCircle, ScanSearch, Settings, Save, Plus, Trash2, Pencil, Medal, Award } from 'lucide-react';
+import { Maximize, Minimize, Volume2, VolumeX, ShieldAlert, CheckCircle, Crosshair, ChevronRight, RefreshCw, Eye, Trophy, AlertCircle, ScanSearch, Settings, Save, Plus, Trash2, Pencil } from 'lucide-react';
 
 // ==========================================
 // 📁 TYPES & INTERFACES
@@ -36,14 +36,19 @@ type LeaderboardEntry = {
 // URL ของ Google Sheets
 const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || "";
 
-// Mock Data สำรองในกรณีที่ต่อ Google Sheets ไม่สำเร็จ
-const ORIGINAL_SCENES: Scene[] = [{
-    id: 'scene-01', title: 'PPE CHALLENGE', originalImage: '/Scene-01-Original.jpg', modifiedImage: '/Scene-01-Modified.jpg', timeLimit: 15,
-    risks: [
-        { id: 'r1', name: 'Missing Safety Helmet', aiLabel: 'PPE NOT DETECTED', description: 'Worker is missing a helmet.', x: 34, y: 28, width: 7, height: 12, confidence: 97 },
-        { id: 'r2', name: 'Missing Safety Glasses', aiLabel: 'PPE NOT DETECTED', description: 'Worker is missing safety glasses.', x: 51, y: 36, width: 4, height: 6, confidence: 93 },
-    ]
-}];
+// ==========================================
+// 📁 MOCK DATA (ชุดข้อมูลตั้งต้น)
+// ==========================================
+const ORIGINAL_SCENES: Scene[] = [
+    {
+        id: 'scene-01',
+        title: 'PPE CHALLENGE',
+        originalImage: '/Scene-01-Original.jpg',
+        modifiedImage: '/Scene-01-Modified.jpg',
+        timeLimit: 15,
+        risks: []
+    }
+];
 
 // ==========================================
 // 📁 UI COMPONENTS
@@ -89,67 +94,93 @@ export default function App() {
     const [soundEnabled, setSoundEnabled] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
-    const idleTimerRef = useRef<NodeJS.Timeout | null>(null);
     const adminClickCount = useRef(0);
+    const [lastActiveTime, setLastActiveTime] = useState(Date.now());
 
+    // 1. ตรวจสอบโหมด Admin
     useEffect(() => {
-        const checkAdmin = () => { if (typeof window !== 'undefined' && window.location.hash === '#admin') setIsAdminMode(true); else setIsAdminMode(false); };
-        checkAdmin(); window.addEventListener('hashchange', checkAdmin);
+        const checkAdmin = () => {
+            if (typeof window !== 'undefined' && window.location.hash === '#admin') {
+                setIsAdminMode(true);
+            } else {
+                setIsAdminMode(false);
+            }
+        };
+        checkAdmin(); 
+        window.addEventListener('hashchange', checkAdmin);
         return () => window.removeEventListener('hashchange', checkAdmin);
     }, []);
 
-    // อัปเดตฟังก์ชันดึงข้อมูลให้รองรับการดึง Leaderboard จาก Sheets
+    // 2. ดึงข้อมูล Google Sheets
     const fetchGameData = async () => {
         try {
-            if (!SHEET_URL) throw new Error("No URL found in .env.local");
-
-            const fetchUrl = `${SHEET_URL}?t=${Date.now()}`;
-            console.log("1. กำลังเชื่อมต่อไปที่:", fetchUrl);
+            if (!SHEET_URL) throw new Error("No URL");
+            const res = await fetch(SHEET_URL);
+            const json = await res.json();
             
-            const res = await fetch(fetchUrl, { cache: 'no-store' });
-            const text = await res.text();
-            
-            try {
-                const json = JSON.parse(text);
-                console.log("2. ข้อมูลที่แปลแล้ว:", json);
-                
-                if (json.status === 'success' && json.data) {
-                    // รองรับโค้ดเก่าและใหม่
-                    const scenesData = Array.isArray(json.data) ? json.data : json.data.scenes;
-                    const leaderboardData = json.data.leaderboard || [];
-
-                    if (scenesData && scenesData.length > 0) {
-                        const parsedScenes = scenesData.map((s: any) => ({
-                            ...s, timeLimit: Number(s.timeLimit) || 15,
-                            risks: s.risks.map((r: any) => ({ ...r, x: Number(r.x), y: Number(r.y), width: Number(r.width), height: Number(r.height), confidence: Math.floor(Math.random() * 10) + 90 }))
-                        }));
-                        setDbScenes(parsedScenes);
-                    } else {
-                        console.warn("⚠️ ไม่มีข้อมูลด่านใน Google Sheets");
-                        setDbScenes(ORIGINAL_SCENES);
-                    }
-
-                    // อัปเดตกระดานคะแนนจาก Google Sheets โดยตรง!
-                    if (leaderboardData.length > 0) {
-                        setDbLeaderboard(leaderboardData);
-                        localStorage.setItem('aicira_lb', JSON.stringify(leaderboardData));
-                    }
+            if (json.status === 'success' && json.data) {
+                // เซ็ตข้อมูลด่าน
+                if (json.data.scenes && json.data.scenes.length > 0) {
+                    const parsedScenes = json.data.scenes.map((s: any) => ({
+                        ...s,
+                        timeLimit: Number(s.timeLimit) || 15,
+                        risks: s.risks.map((r: any) => ({
+                            ...r, x: Number(r.x), y: Number(r.y), width: Number(r.width), height: Number(r.height), confidence: Math.floor(Math.random() * 10) + 90
+                        }))
+                    }));
+                    setDbScenes(parsedScenes);
                 } else {
                     setDbScenes(ORIGINAL_SCENES);
                 }
-            } catch (jsonErr) {
-                console.error("❌ การแปลง JSON ผิดพลาด (อาจเกิดจากสิทธิ์การเข้าถึง Web App):", text);
+                
+                // เซ็ตข้อมูล Leaderboard
+                if (json.data.leaderboard) {
+                    setDbLeaderboard(json.data.leaderboard);
+                }
+            } else {
                 setDbScenes(ORIGINAL_SCENES);
             }
         } catch (error) {
-            console.error("❌ ดึงข้อมูลไม่สำเร็จ:", error);
+            console.log("Using Mock Data (Sheets not reachable)");
             setDbScenes(ORIGINAL_SCENES);
         }
         setGameState('START');
     };
 
-    useEffect(() => { if(!isAdminMode) fetchGameData(); }, [isAdminMode]);
+    useEffect(() => {
+        if(!isAdminMode) fetchGameData();
+    }, [isAdminMode]);
 
+    // 3. ระบบบันทึกเวลาการขยับ (Bulletproof Idle Timer)
+    useEffect(() => {
+        const updateActivity = () => setLastActiveTime(Date.now());
+        window.addEventListener('mousemove', updateActivity);
+        window.addEventListener('touchstart', updateActivity);
+        window.addEventListener('keydown', updateActivity);
+        window.addEventListener('click', updateActivity);
+        
+        return () => {
+            window.removeEventListener('mousemove', updateActivity);
+            window.removeEventListener('touchstart', updateActivity);
+            window.removeEventListener('keydown', updateActivity);
+            window.removeEventListener('click', updateActivity);
+        };
+    }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            if (gameState === 'LEADERBOARD' || gameState === 'REGISTRATION') {
+                const idleTime = Date.now() - lastActiveTime;
+                if (idleTime > 45000) { // หากไม่มีการขยับใดๆ เลย 45 วินาที
+                    setGameState('START');
+                    setPlayerName('');
+                }
+            }
+        }, 3000); // เช็คทุกๆ 3 วินาที
+        return () => clearInterval(interval);
+    }, [gameState, lastActiveTime]);
+
+    // ระบบเสียง
     const playSound = useCallback((type: 'start' | 'correct' | 'wrong' | 'scan' | 'complete' | 'error') => {
         if (!soundEnabled) return;
         try {
@@ -165,22 +196,7 @@ export default function App() {
         } catch (e) { /* ignore */ }
     }, [soundEnabled]);
 
-    const resetIdleTimer = useCallback(() => {
-        if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
-        if (gameState === 'LEADERBOARD') {
-             idleTimerRef.current = setTimeout(() => { 
-                fetchGameData(); // โหลดข้อมูลใหม่ก่อนกลับหน้าแรก
-                setGameState('REGISTRATION'); 
-                setPlayerName(''); 
-            }, 30000); 
-        }
-    }, [gameState]);
-
-    useEffect(() => {
-        window.addEventListener('mousemove', resetIdleTimer); window.addEventListener('touchstart', resetIdleTimer); resetIdleTimer();
-        return () => { window.removeEventListener('mousemove', resetIdleTimer); window.removeEventListener('touchstart', resetIdleTimer); if (idleTimerRef.current) clearTimeout(idleTimerRef.current); };
-    }, [resetIdleTimer]);
-
+    // Controllers
     const handleRegistrationSubmit = (name: string) => {
         setPlayerName(name);
         const shuffled = [...dbScenes].sort(() => 0.5 - Math.random());
@@ -199,21 +215,21 @@ export default function App() {
         setGameState('FINAL_RESULT'); playSound('complete');
         if (!activeScene || !finalScore) return;
 
-        const totalScore = Math.max(0, finalScore.score + finalScore.timeBonus - finalScore.penalty);
+        // คำนวณคะแนนสุทธิ (Base + Bonus - Penalty)
+        let totalScore = finalScore.score + finalScore.timeBonus - finalScore.penalty;
+        if (totalScore < 0) totalScore = 0;
         
         const newRecord = { player_name: playerName, total_score: totalScore, total_risks_found: finalScore.found.length, total_risks: activeScene.risks.length, played_at: new Date().toISOString() };
         
-        // อัปเดตโชว์บนจอก่อนทันที
-        let currentLB = [...dbLeaderboard];
-        currentLB.push(newRecord);
-        currentLB.sort((a, b) => b.total_score - a.total_score);
-        currentLB = currentLB.slice(0, 10);
-        setDbLeaderboard(currentLB);
+        // อัปเดตในเครื่องก่อน
+        const newDb = [...dbLeaderboard, newRecord].sort((a:any, b:any) => b.total_score - a.total_score).slice(0, 10);
+        setDbLeaderboard(newDb);
 
         if (SHEET_URL) {
             try {
                 await fetch(SHEET_URL, {
-                    method: 'POST', mode: 'no-cors',
+                    method: 'POST',
+                    mode: 'no-cors',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: "saveScore", ...newRecord })
                 });
@@ -253,11 +269,14 @@ export default function App() {
                         <div className="absolute inset-0 bg-gradient-to-b from-[#0a1128]/80 to-[#0a1128] z-0" />
                         <div className="z-10 flex flex-col items-center">
                             <motion.div 
-                                initial={{ y: -50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} 
+                                initial={{ y: -50, opacity: 0 }} 
+                                animate={{ y: 0, opacity: 1 }} 
                                 className="mb-4 inline-flex items-center gap-3 px-6 py-2 border border-[#00d2ff]/30 rounded-full bg-[#00d2ff]/10 backdrop-blur-sm cursor-pointer hover:bg-[#00d2ff]/20 transition-colors"
                                 onClick={() => {
                                     adminClickCount.current += 1;
-                                    if (adminClickCount.current >= 5) { window.location.hash = '#admin'; }
+                                    if (adminClickCount.current >= 5) {
+                                        window.location.hash = '#admin';
+                                    }
                                 }}
                                 title="Tap 5 times for Admin Dashboard"
                             >
@@ -269,7 +288,7 @@ export default function App() {
                                 <p className="text-2xl text-[#00d2ff] font-light italic">"Can You Spot the 5 Differences?"</p>
                             </div>
                         </div>
-                        <FuturisticButton onClick={() => setGameState('REGISTRATION')} className="text-2xl px-12 py-6 z-10">
+                        <FuturisticButton onClick={() => { setGameState('REGISTRATION'); setLastActiveTime(Date.now()); }} className="text-2xl px-12 py-6 z-10">
                             ENTER SYSTEM <ChevronRight className="w-8 h-8" />
                         </FuturisticButton>
                         <div className="absolute bottom-8 z-10 text-white/50 text-sm tracking-wider font-mono">Powered by Siam Riken Industrial Co., Ltd.</div>
@@ -284,7 +303,7 @@ export default function App() {
                         <div className="flex flex-col md:flex-row gap-8 max-w-6xl w-full mb-16">
                             {[{ step: '01', title: 'COMPARE', desc: 'Look at the Original and Modified images.', icon: <Eye className="w-12 h-12" /> },
                               { step: '02', title: 'FIND', desc: 'Tap the 5 differences on either image as fast as you can.', icon: <Crosshair className="w-12 h-12" /> },
-                              { step: '03', title: 'SCORE', desc: 'Find them all within the time limit for a maximum time bonus.', icon: <Trophy className="w-12 h-12" /> }]
+                              { step: '03', title: 'SCORE', desc: 'Find them all within the time limit. Penalty for wrong taps!', icon: <Trophy className="w-12 h-12" /> }]
                               .map((item, idx) => (
                                 <motion.div key={item.step} initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.2 }} className="flex-1 bg-black/40 border border-[#00d2ff]/30 p-8 flex flex-col items-center text-center group">
                                     <div className="text-[#00d2ff] mb-6 opacity-80 group-hover:scale-110 transition-transform">{item.icon}</div>
@@ -296,12 +315,12 @@ export default function App() {
                         <FuturisticButton onClick={() => { setGameState('PLAYING'); playSound('start'); }} className="px-10 py-4">START GAME</FuturisticButton>
                     </motion.div>
                 )}
-                
+
                 {gameState === 'PLAYING' && activeScene && <GameScene key={`scene-${activeScene.id}`} scene={activeScene} onFinish={handleSceneFinish} playSound={playSound} />}
                 {gameState === 'AI_ANALYZING' && <AIAnalyzingScreen key="ai-analyze" onComplete={() => setGameState('AI_RESULT')} />}
                 {gameState === 'AI_RESULT' && activeScene && finalScore && <AIResultScreen key="ai-result" scene={activeScene} scoreData={finalScore} onComplete={calculateAndSaveFinalScore} />}
                 {gameState === 'FINAL_RESULT' && activeScene && finalScore && <FinalResultScreen key="final" playerName={playerName} score={finalScore} totalRisks={activeScene.risks.length} onContinue={() => setGameState('LEADERBOARD')} />}
-                {gameState === 'LEADERBOARD' && <LeaderboardScreen key="lb" playerName={playerName} leaderboardData={dbLeaderboard} onPlayAgain={() => { fetchGameData(); setGameState('REGISTRATION'); setPlayerName(''); }} />}
+                {gameState === 'LEADERBOARD' && <LeaderboardScreen key="lb" playerName={playerName} leaderboardData={dbLeaderboard} onPlayAgain={() => { setGameState('REGISTRATION'); setPlayerName(''); }} />}
             </AnimatePresence>
             <style dangerouslySetInnerHTML={{__html: `@keyframes scan { 0% { top: 0%; } 50% { top: 100%; } 100% { top: 0%; } }`}} />
         </div>
@@ -344,20 +363,22 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
     const [foundRisks, setFoundRisks] = useState<string[]>([]);
     const [tappedCorrectIds, setTappedCorrectIds] = useState<{x: number, y: number, id: string}[]>([]);
     const [missedTaps, setMissedTaps] = useState<{x: number, y: number, id: number}[]>([]);
+    const [wrongClicks, setWrongClicks] = useState(0); // นับจำนวนครั้งที่กดผิด
     const timerRef = useRef<NodeJS.Timeout | null>(null);
-    const totalMissedCount = useRef(0); 
 
     useEffect(() => {
         if (timeLeft > 0 && foundRisks.length < scene.risks.length) {
             timerRef.current = setTimeout(() => setTimeLeft((prev:number) => prev - 1), 1000);
         } else if (timeLeft === 0 || foundRisks.length === scene.risks.length) {
+            
             const baseScore = foundRisks.length * 10; 
             const timeBonus = (foundRisks.length === scene.risks.length) ? Math.floor((timeLeft / scene.timeLimit) * 50) : 0; 
-            const penalty = totalMissedCount.current * 1.5;
-            setTimeout(() => onFinish({ found: foundRisks, score: baseScore, timeBonus: timeBonus, penalty: penalty }), 500);
+            const penaltyScore = wrongClicks * 1.5; // หักผิดครั้งละ 1.5
+            
+            setTimeout(() => onFinish({ found: foundRisks, score: baseScore, timeBonus: timeBonus, penalty: penaltyScore }), 500);
         }
         return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-    }, [timeLeft, foundRisks.length, scene]);
+    }, [timeLeft, foundRisks.length, scene, wrongClicks]);
 
     const handleTap = (e: React.MouseEvent | React.TouchEvent) => {
         if (timeLeft === 0 || foundRisks.length === scene.risks.length) return;
@@ -382,9 +403,8 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
             }
         }
         if (!hit && !alreadyFound) {
-            playSound('error'); 
-            const mid = Date.now();
-            totalMissedCount.current += 1;
+            playSound('error'); const mid = Date.now();
+            setWrongClicks(prev => prev + 1); // บันทึกว่ากดผิดเพิ่ม
             setMissedTaps((prev:any) => [...prev, { x, y, id: mid }]);
             setTimeout(() => setMissedTaps((prev:any) => prev.filter((m:any) => m.id !== mid)), 500);
         }
@@ -456,6 +476,7 @@ const AIResultScreen = ({ scene, scoreData, onComplete }: any) => {
         let delay = 0; scene.risks.forEach((risk:any) => { setTimeout(() => setVisible((p:any) => [...p, risk.id]), delay); delay += 300; });
         const tid = setTimeout(onComplete, delay + 2500); return () => clearTimeout(tid);
     }, [scene, onComplete]);
+
     return (
         <motion.div className="flex flex-col h-full w-full bg-black absolute inset-0 z-20" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="absolute top-4 left-4 z-30 bg-black/70 border border-[#00d2ff] p-4 backdrop-blur-sm rounded"><h3 className="text-[#00d2ff] font-bold tracking-widest mb-1 flex items-center gap-2"><ShieldAlert className="w-5 h-5" /> AI-CiRA CORE DETECTION</h3></div>
@@ -465,12 +486,12 @@ const AIResultScreen = ({ scene, scoreData, onComplete }: any) => {
                     <AnimatePresence>
                         {scene.risks.map((risk:any) => {
                             const isFound = scoreData?.found.includes(risk.id);
+                            // แก้ไขบัก toUpperCase() เผื่อกรณีไม่ได้พิมพ์ชื่อจุด
+                            const riskNameStr = risk.name ? String(risk.name).toUpperCase() : 'UNKNOWN';
+                            
                             return visible.includes(risk.id) && (
                                 <motion.div key={risk.id} initial={{ opacity: 0, scale: 1.2 }} animate={{ opacity: 1, scale: 1 }} className="absolute border-2 z-20" style={{ left: `${risk.x}%`, top: `${risk.y}%`, width: `${risk.width}%`, height: `${risk.height}%`, borderColor: isFound ? '#00ff88' : '#ff9900' }}>
-                                    <div className="absolute bottom-full left-0 mb-1 whitespace-nowrap bg-black/90 border text-[10px] md:text-xs font-mono p-1 flex items-center gap-2" style={{ borderColor: isFound ? '#00ff88' : '#ff9900' }}>
-                                        {/* แก้บัก toUpperCase โดยแปลงเป็น String ก่อน และถ้าว่างให้ใส่ UNKNOWN */}
-                                        <span className={isFound ? 'text-[#00ff88]' : 'text-[#ff9900]'}>{String(risk.name || 'UNKNOWN').toUpperCase()}</span>
-                                    </div>
+                                    <div className="absolute bottom-full left-0 mb-1 whitespace-nowrap bg-black/90 border text-[10px] md:text-xs font-mono p-1 flex items-center gap-2" style={{ borderColor: isFound ? '#00ff88' : '#ff9900' }}><span className={isFound ? 'text-[#00ff88]' : 'text-[#ff9900]'}>{riskNameStr}</span></div>
                                     <div className={`w-full h-[1px] absolute opacity-50 ${isFound ? 'bg-[#00ff88]' : 'bg-[#ff9900]'}`} style={{ animation: 'scan 2s linear infinite' }} />
                                 </motion.div>
                             );
@@ -484,25 +505,24 @@ const AIResultScreen = ({ scene, scoreData, onComplete }: any) => {
 
 const FinalResultScreen = ({ playerName, score, totalRisks, onContinue }: any) => {
     const totalFound = score.found.length; 
-    const finalScore = Math.max(0, score.score + score.timeBonus - score.penalty);
-
+    let finalScore = score.score + score.timeBonus - score.penalty;
+    if (finalScore < 0) finalScore = 0;
+    
     return (
         <motion.div className="flex flex-col items-center justify-center h-full w-full absolute inset-0 z-10 p-4 bg-[#0a1128]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
             <div className="z-10 flex flex-col items-center w-full max-w-4xl">
                 <NeonText as="h2" className="text-5xl md:text-6xl font-black mb-4 text-center tracking-widest">CHALLENGE COMPLETE</NeonText>
                 <p className="text-xl font-mono text-gray-300 mb-8 uppercase tracking-widest">OPERATOR: <span className="text-white font-bold">{playerName}</span></p>
-                
-                <div className="bg-black/40 border border-white/10 p-8 rounded-xl flex flex-col items-center justify-center w-full mb-8 relative overflow-hidden">
-                    <h3 className="text-gray-400 font-mono mb-2">FINAL SCORE (MAX 100)</h3>
-                    <div className="text-7xl font-bold text-white tracking-tighter mb-4">{finalScore.toLocaleString(undefined, {maximumFractionDigits: 1})}</div>
-                    <div className="flex flex-wrap gap-4 text-sm font-mono mt-4 border-t border-white/10 pt-4 w-full justify-center">
-                        <span className="text-[#00ff88]">FOUND: +{score.score}</span>
-                        <span className="text-[#00d2ff]">TIME BONUS: +{score.timeBonus}</span>
-                        <span className="text-red-500">PENALTY: -{score.penalty}</span>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full mb-12">
+                    <div className="bg-black/40 border border-white/10 p-8 rounded-xl flex flex-col items-center justify-center col-span-1 md:col-span-3">
+                        <h3 className="text-gray-400 font-mono mb-2">FINAL SCORE (MAX 100)</h3>
+                        <div className="text-7xl font-bold text-white tracking-tighter">{finalScore.toLocaleString()}</div>
+                        <div className="mt-4 flex gap-4 text-sm font-mono">
+                            <span className="text-[#00ff88]">FOUND: +{score.score}</span>
+                            <span className="text-[#00d2ff]">TIME BONUS: +{score.timeBonus}</span>
+                            <span className="text-red-500">PENALTY: -{score.penalty}</span>
+                        </div>
                     </div>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 w-full mb-12">
                     <div className="bg-white/5 border border-white/10 p-6 rounded-xl flex flex-col items-center text-center">
                         <h3 className="text-gray-400 font-mono text-sm mb-4">YOUR DETECTION</h3>
                         <div className="text-5xl font-bold text-white mb-2">{totalFound} <span className="text-2xl text-gray-500">/ {totalRisks}</span></div>
@@ -519,76 +539,66 @@ const FinalResultScreen = ({ playerName, score, totalRisks, onContinue }: any) =
 };
 
 const LeaderboardScreen = ({ playerName, leaderboardData, onPlayAgain }: any) => {
-    // กรองและเรียงข้อมูลให้มั่นใจว่าถูกต้อง
-    const sortedData = [...leaderboardData].sort((a, b) => b.total_score - a.total_score).slice(0, 10);
-    const top3 = sortedData.slice(0, 3);
-    const others = sortedData.slice(3, 10);
-
-    // ฟังก์ชันช่วยจัดสไตล์ให้เหรียญทอง เงิน ทองแดง
-    const getPodiumStyle = (index: number) => {
-        if (index === 0) return { color: 'text-yellow-400', border: 'border-yellow-400', bg: 'bg-yellow-400/20', shadow: 'shadow-[0_0_30px_rgba(250,204,21,0.3)]', height: 'h-48 md:h-56', icon: <Trophy className="w-10 h-10 text-yellow-400 mb-2"/> }; // 1st
-        if (index === 1) return { color: 'text-gray-300', border: 'border-gray-300', bg: 'bg-gray-300/20', shadow: 'shadow-[0_0_20px_rgba(209,213,219,0.2)]', height: 'h-40 md:h-48', icon: <Medal className="w-8 h-8 text-gray-300 mb-2"/> }; // 2nd
-        if (index === 2) return { color: 'text-amber-600', border: 'border-amber-600', bg: 'bg-amber-600/20', shadow: 'shadow-[0_0_20px_rgba(217,119,6,0.2)]', height: 'h-32 md:h-40', icon: <Award className="w-8 h-8 text-amber-600 mb-2"/> }; // 3rd
-        return { color: '', border: '', bg: '', shadow: '', height: '', icon: null };
-    };
-
-    // จัดเรียงลำดับการแสดงผล Podium ซ้าย(2) กลาง(1) ขวา(3)
-    const podiumDisplayOrder = [
-        { data: top3[1], originalIndex: 1 }, 
-        { data: top3[0], originalIndex: 0 }, 
-        { data: top3[2], originalIndex: 2 }
-    ];
-
     return (
         <motion.div className="flex flex-col items-center justify-start h-full w-full absolute inset-0 z-10 pt-12 pb-8 px-4 bg-[#0a1128] overflow-y-auto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <NeonText as="h2" className="text-4xl font-black mb-12 tracking-widest text-center">TOP 10 DETECTIVES</NeonText>
+            <NeonText as="h2" className="text-4xl font-black mb-8 tracking-widest text-center">TOP 10 DETECTIVES</NeonText>
             
-            {/* --- ส่วนที่ 1: Podium Top 3 --- */}
-            {top3.length > 0 && (
-                <div className="flex items-end justify-center gap-2 md:gap-6 w-full max-w-3xl mb-12 px-2">
-                    {podiumDisplayOrder.map((item, idx) => {
-                        if (!item.data) return <div key={idx} className="flex-1" />; // ถ้าคนเล่นไม่ถึง 3 คน ให้เว้นช่องว่างไว้
-                        const style = getPodiumStyle(item.originalIndex);
-                        const isCurrentPlayer = item.data.player_name === playerName;
-                        
-                        return (
-                            <motion.div 
-                                key={idx}
-                                initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} transition={{ delay: item.originalIndex * 0.2 }}
-                                className={`flex-1 flex flex-col items-center justify-end rounded-t-xl border-t-4 border-l border-r p-4 relative ${style.border} ${style.bg} ${style.shadow} ${style.height} ${isCurrentPlayer ? 'animate-pulse' : ''}`}
-                            >
-                                {style.icon}
-                                <span className={`text-2xl md:text-4xl font-black mb-1 ${style.color}`}>{item.data.total_score.toLocaleString(undefined, {maximumFractionDigits: 1})}</span>
-                                <span className={`font-bold text-center text-sm md:text-base truncate w-full ${isCurrentPlayer ? 'text-white' : 'text-gray-200'}`} title={item.data.player_name}>
-                                    {item.data.player_name}
-                                </span>
-                                <div className={`absolute -bottom-6 w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm bg-black border-2 ${style.border} ${style.color}`}>
-                                    {item.originalIndex + 1}
+            {leaderboardData.length > 0 && (
+                <>
+                    {/* Podium สำหรับที่ 1, 2, 3 */}
+                    <div className="flex justify-center items-end gap-4 mb-12 h-48">
+                        {/* ที่ 2 - สีเงิน */}
+                        {leaderboardData[1] && (
+                            <div className="flex flex-col items-center">
+                                <span className="text-gray-300 font-bold mb-2 max-w-[100px] truncate">{leaderboardData[1].player_name}</span>
+                                <div className="w-24 h-32 bg-gradient-to-t from-gray-500/20 to-gray-300/40 border border-gray-400 rounded-t-lg flex flex-col items-center justify-start pt-4">
+                                    <span className="text-gray-300 text-3xl font-black">2</span>
+                                    <span className="text-white font-mono mt-2">{leaderboardData[1].total_score}</span>
                                 </div>
-                            </motion.div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* --- ส่วนที่ 2: อันดับที่ 4 - 10 --- */}
-            {others.length > 0 && (
-                <div className="w-full max-w-2xl bg-black/40 border border-white/10 rounded-xl p-6 mb-12 mt-6">
-                    {others.map((entry:any, idx:number) => (
-                        <div key={idx} className={`flex justify-between items-center py-3 border-b border-white/5 last:border-0 ${entry.player_name === playerName ? 'bg-white/10 rounded px-2 -mx-2' : ''}`}>
-                            <div className="flex items-center gap-4">
-                                <span className="text-gray-500 font-mono w-6">#{idx + 4}</span>
-                                <span className={`font-bold ${entry.player_name === playerName ? 'text-white' : 'text-gray-300'}`}>{entry.player_name}</span>
                             </div>
-                            <span className="font-mono text-[#00d2ff]">{entry.total_score.toLocaleString(undefined, {maximumFractionDigits: 1})}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
+                        )}
+                        
+                        {/* ที่ 1 - สีทอง */}
+                        {leaderboardData[0] && (
+                            <div className="flex flex-col items-center">
+                                <Trophy className="w-8 h-8 text-yellow-400 mb-2 drop-shadow-[0_0_8px_rgba(250,204,21,0.8)]" />
+                                <span className="text-yellow-400 font-bold mb-2 max-w-[120px] truncate">{leaderboardData[0].player_name}</span>
+                                <div className="w-28 h-40 bg-gradient-to-t from-yellow-500/20 to-yellow-400/40 border border-yellow-400 rounded-t-lg flex flex-col items-center justify-start pt-4 shadow-[0_0_30px_rgba(250,204,21,0.2)]">
+                                    <span className="text-yellow-400 text-4xl font-black">1</span>
+                                    <span className="text-white font-mono mt-2 font-bold">{leaderboardData[0].total_score}</span>
+                                </div>
+                            </div>
+                        )}
 
-            <FuturisticButton onClick={onPlayAgain} primary={false} className="px-10 mt-auto shrink-0">
-                <RefreshCw className="w-5 h-5 mr-2 inline" /> NEXT PLAYER
-            </FuturisticButton>
+                        {/* ที่ 3 - สีทองแดง */}
+                        {leaderboardData[2] && (
+                            <div className="flex flex-col items-center">
+                                <span className="text-orange-400 font-bold mb-2 max-w-[100px] truncate">{leaderboardData[2].player_name}</span>
+                                <div className="w-24 h-24 bg-gradient-to-t from-orange-600/20 to-orange-400/40 border border-orange-500 rounded-t-lg flex flex-col items-center justify-start pt-4">
+                                    <span className="text-orange-400 text-2xl font-black">3</span>
+                                    <span className="text-white font-mono mt-2">{leaderboardData[2].total_score}</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* รายชื่อที่ 4 - 10 */}
+                    {leaderboardData.length > 3 && (
+                        <div className="w-full max-w-2xl bg-black/40 border border-white/10 rounded-xl p-6 mb-12">
+                            {leaderboardData.slice(3).map((entry:any, idx:number) => (
+                                <div key={idx+3} className={`flex justify-between items-center py-3 border-b border-white/5 last:border-0 ${entry.player_name === playerName ? 'bg-white/10 rounded px-2 -mx-2' : ''}`}>
+                                    <div className="flex items-center gap-4"><span className="text-gray-500 font-mono w-6">#{idx + 4}</span><span className={`font-bold ${entry.player_name === playerName ? 'text-white' : 'text-gray-300'}`}>{entry.player_name}</span></div>
+                                    <span className="font-mono text-[#00d2ff]">{entry.total_score.toLocaleString()}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </>
+            )}
+            
+            {leaderboardData.length === 0 && <div className="text-gray-500 mb-12">ยังไม่มีข้อมูลคะแนน</div>}
+
+            <FuturisticButton onClick={onPlayAgain} primary={false} className="px-10 mt-auto shrink-0"><RefreshCw className="w-5 h-5 mr-2 inline" /> NEXT PLAYER</FuturisticButton>
         </motion.div>
     );
 };
@@ -603,12 +613,17 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
     const [tempBox, setTempBox] = useState<any>(null);
     const [statusMsg, setStatusMsg] = useState("");
 
-    const handleSceneSelect = (s: Scene) => { setSelectedScene(JSON.parse(JSON.stringify(s))); };
-
-    const createNewScene = () => {
-        setSelectedScene({ id: `scene-${Date.now()}`, title: "New Scene", originalImage: "/Scene-01-Original.jpg", modifiedImage: "/Scene-01-Modified.jpg", timeLimit: 15, risks: [] });
+    const handleSceneSelect = (s: Scene) => {
+        setSelectedScene(JSON.parse(JSON.stringify(s))); // Deep copy
     };
 
+    const createNewScene = () => {
+        setSelectedScene({
+            id: `scene-${Date.now()}`, title: "New Scene", originalImage: "/Scene-01-Original.jpg", modifiedImage: "/Scene-01-Modified.jpg", timeLimit: 15, risks: []
+        });
+    };
+
+    // --- Drawing Logic ---
     const onMouseDown = (e: React.MouseEvent) => {
         if (!selectedScene) return;
         const rect = e.currentTarget.getBoundingClientRect();
@@ -622,7 +637,10 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
         const rect = e.currentTarget.getBoundingClientRect();
         const curX = Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100));
         const curY = Math.max(0, Math.min(100, ((e.clientY - rect.top) / rect.height) * 100));
-        setTempBox({ x: Math.min(startPos.x, curX), y: Math.min(startPos.y, curY), width: Math.abs(curX - startPos.x), height: Math.abs(curY - startPos.y) });
+        setTempBox({
+            x: Math.min(startPos.x, curX), y: Math.min(startPos.y, curY),
+            width: Math.abs(curX - startPos.x), height: Math.abs(curY - startPos.y)
+        });
     };
 
     const onMouseUp = () => {
@@ -633,19 +651,28 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
         setIsDrawing(false); setTempBox(null);
     };
 
-    const removeRisk = (id: string) => { setSelectedScene((prev:any) => ({ ...prev, risks: prev.risks.filter((r:any) => r.id !== id) })); };
+    const removeRisk = (id: string) => {
+        setSelectedScene((prev:any) => ({ ...prev, risks: prev.risks.filter((r:any) => r.id !== id) }));
+    };
 
     const saveToSheets = async () => {
         if (!SHEET_URL) { alert("ไม่มี URL Google Sheets ในระบบ (.env.local)"); return; }
         setStatusMsg("กำลังบันทึกข้อมูล... (รอสักครู่)");
+        
         try {
             await fetch(SHEET_URL, { 
-                method: 'POST', mode: 'no-cors', headers: { 'Content-Type': 'application/json', },
+                method: 'POST',
+                mode: 'no-cors',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
                 body: JSON.stringify({ action: "saveSceneConfig", scene: selectedScene }) 
             });
+            
             setStatusMsg("ส่งคำสั่งบันทึกแล้ว! (รีเฟรชหน้าเว็บเพื่อดูผลลัพธ์)");
             reloadData(); 
             setTimeout(() => setStatusMsg(""), 4000);
+            
         } catch (e) {
             console.error("Save Error:", e);
             setStatusMsg("เกิดข้อผิดพลาดในการเชื่อมต่อเครือข่าย");
@@ -660,6 +687,7 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+                {/* Sidebar: List Scenes */}
                 <div className="bg-gray-800 p-4 rounded-lg">
                     <h2 className="text-xl font-bold mb-4 border-b border-gray-700 pb-2">จัดการด่าน (Scenes)</h2>
                     <ul className="space-y-2 mb-4">
@@ -672,8 +700,10 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
                     <button onClick={createNewScene} className="w-full py-2 bg-green-600 hover:bg-green-500 rounded flex items-center justify-center gap-2"><Plus className="w-4 h-4"/> สร้างด่านใหม่</button>
                 </div>
 
+                {/* Editor Area */}
                 {selectedScene ? (
                     <div className="col-span-1 lg:col-span-3 space-y-6">
+                        {/* Config Form */}
                         <div className="bg-gray-800 p-4 rounded-lg grid grid-cols-2 gap-4">
                             <div><label className="text-xs text-gray-400">Scene ID</label><input type="text" value={selectedScene.id} readOnly className="w-full bg-gray-900 p-2 rounded text-sm text-gray-500" /></div>
                             <div><label className="text-xs text-gray-400">ชื่อด่าน (Title)</label><input type="text" value={selectedScene.title} onChange={e => setSelectedScene({...selectedScene, title: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
@@ -681,21 +711,25 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
                             <div><label className="text-xs text-gray-400">รูปภาพ Modified (รูปมีจุดผิด)</label><input type="text" value={selectedScene.modifiedImage} onChange={e => setSelectedScene({...selectedScene, modifiedImage: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
                         </div>
 
+                        {/* Visual Editor */}
                         <div className="bg-gray-800 p-4 rounded-lg">
                             <h3 className="font-bold mb-2 text-[#00d2ff]">Visual Editor (ใช้เมาส์ลากคลุมจุดเสี่ยงบนภาพ)</h3>
                             <div className="relative w-full aspect-video border-2 border-gray-600 cursor-crosshair select-none" onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
                                 <img src={selectedScene.modifiedImage} alt="Editor" className="w-full h-full object-cover pointer-events-none" />
+                                {/* Render Saved Boxes */}
                                 {selectedScene.risks.map((r:any) => (
                                     <div key={r.id} className="absolute border-2 border-[#00ff88] bg-[#00ff88]/20 flex items-center justify-center pointer-events-none" style={{ left:`${r.x}%`, top:`${r.y}%`, width:`${r.width}%`, height:`${r.height}%` }}>
                                         <span className="bg-black/80 px-1 text-[10px] text-white absolute -bottom-5">{r.name}</span>
                                     </div>
                                 ))}
+                                {/* Render Temp Drawing Box */}
                                 {isDrawing && tempBox && (
                                     <div className="absolute border-2 border-dashed border-red-500 bg-red-500/20 pointer-events-none" style={{ left:`${tempBox.x}%`, top:`${tempBox.y}%`, width:`${tempBox.width}%`, height:`${tempBox.height}%` }} />
                                 )}
                             </div>
                         </div>
 
+                        {/* Risks List Editor */}
                         <div className="bg-gray-800 p-4 rounded-lg">
                             <h3 className="font-bold mb-4 border-b border-gray-700 pb-2">รายละเอียดจุดเสี่ยง ({selectedScene.risks.length} จุด)</h3>
                             <div className="space-y-3">
@@ -711,6 +745,7 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
                             </div>
                         </div>
 
+                        {/* Save Actions */}
                         <div className="flex items-center gap-4">
                             <button onClick={saveToSheets} className="px-8 py-3 bg-[#00d2ff] hover:bg-[#00a8cc] text-black font-bold rounded flex items-center gap-2"><Save className="w-5 h-5"/> บันทึกลง Google Sheets</button>
                             {statusMsg && <span className="text-green-400 font-bold">{statusMsg}</span>}
