@@ -36,7 +36,7 @@ type LeaderboardEntry = {
 // URL ของ Google Sheets
 const SHEET_URL = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL || "";
 
-// Mock Data สำรอง
+// Mock Data สำรองในกรณีที่ต่อ Google Sheets ไม่สำเร็จ
 const ORIGINAL_SCENES: Scene[] = [{
     id: 'scene-01', title: 'PPE CHALLENGE', originalImage: '/Scene-01-Original.jpg', modifiedImage: '/Scene-01-Modified.jpg', timeLimit: 15,
     risks: [
@@ -277,6 +277,7 @@ export default function App() {
                 )}
 
                 {gameState === 'REGISTRATION' && <RegistrationScreen key="reg" onSubmit={handleRegistrationSubmit} playSound={playSound} />}
+                
                 {gameState === 'HOW_TO_PLAY' && (
                     <motion.div key="htp" className="w-full h-full absolute inset-0 flex flex-col items-center justify-center p-8 z-10 bg-[#0a1128]" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
                         <NeonText className="text-5xl font-bold mb-16 tracking-widest">HOW TO PLAY</NeonText>
@@ -295,6 +296,7 @@ export default function App() {
                         <FuturisticButton onClick={() => { setGameState('PLAYING'); playSound('start'); }} className="px-10 py-4">START GAME</FuturisticButton>
                     </motion.div>
                 )}
+                
                 {gameState === 'PLAYING' && activeScene && <GameScene key={`scene-${activeScene.id}`} scene={activeScene} onFinish={handleSceneFinish} playSound={playSound} />}
                 {gameState === 'AI_ANALYZING' && <AIAnalyzingScreen key="ai-analyze" onComplete={() => setGameState('AI_RESULT')} />}
                 {gameState === 'AI_RESULT' && activeScene && finalScore && <AIResultScreen key="ai-result" scene={activeScene} scoreData={finalScore} onComplete={calculateAndSaveFinalScore} />}
@@ -465,7 +467,10 @@ const AIResultScreen = ({ scene, scoreData, onComplete }: any) => {
                             const isFound = scoreData?.found.includes(risk.id);
                             return visible.includes(risk.id) && (
                                 <motion.div key={risk.id} initial={{ opacity: 0, scale: 1.2 }} animate={{ opacity: 1, scale: 1 }} className="absolute border-2 z-20" style={{ left: `${risk.x}%`, top: `${risk.y}%`, width: `${risk.width}%`, height: `${risk.height}%`, borderColor: isFound ? '#00ff88' : '#ff9900' }}>
-                                    <div className="absolute bottom-full left-0 mb-1 whitespace-nowrap bg-black/90 border text-[10px] md:text-xs font-mono p-1 flex items-center gap-2" style={{ borderColor: isFound ? '#00ff88' : '#ff9900' }}><span className={isFound ? 'text-[#00ff88]' : 'text-[#ff9900]'}>{risk.name.toUpperCase()}</span></div>
+                                    <div className="absolute bottom-full left-0 mb-1 whitespace-nowrap bg-black/90 border text-[10px] md:text-xs font-mono p-1 flex items-center gap-2" style={{ borderColor: isFound ? '#00ff88' : '#ff9900' }}>
+                                        {/* แก้บัก toUpperCase โดยแปลงเป็น String ก่อน และถ้าว่างให้ใส่ UNKNOWN */}
+                                        <span className={isFound ? 'text-[#00ff88]' : 'text-[#ff9900]'}>{String(risk.name || 'UNKNOWN').toUpperCase()}</span>
+                                    </div>
                                     <div className={`w-full h-[1px] absolute opacity-50 ${isFound ? 'bg-[#00ff88]' : 'bg-[#ff9900]'}`} style={{ animation: 'scan 2s linear infinite' }} />
                                 </motion.div>
                             );
