@@ -45,7 +45,7 @@ const ORIGINAL_SCENES: Scene[] = [
         title: 'PPE CHALLENGE',
         originalImage: '/Scene-01-Original.jpg',
         modifiedImage: '/Scene-01-Modified.jpg',
-        timeLimit: 15,
+        timeLimit: 30, // ปรับค่าเริ่มต้นเป็น 30 วินาที
         risks: []
     }
 ];
@@ -123,7 +123,7 @@ export default function App() {
                 if (json.data.scenes && json.data.scenes.length > 0) {
                     const parsedScenes = json.data.scenes.map((s: any) => ({
                         ...s,
-                        timeLimit: Number(s.timeLimit) || 15,
+                        timeLimit: Number(s.timeLimit) || 30, // ปรับค่าเริ่มต้นเป็น 30 วินาที
                         risks: s.risks.map((r: any) => ({
                             ...r, x: Number(r.x), y: Number(r.y), width: Number(r.width), height: Number(r.height), confidence: Math.floor(Math.random() * 10) + 90
                         }))
@@ -363,7 +363,7 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
     const [foundRisks, setFoundRisks] = useState<string[]>([]);
     const [tappedCorrectIds, setTappedCorrectIds] = useState<{x: number, y: number, id: string}[]>([]);
     const [missedTaps, setMissedTaps] = useState<{x: number, y: number, id: number}[]>([]);
-    const [wrongClicks, setWrongClicks] = useState(0); // นับจำนวนครั้งที่กดผิด
+    const [wrongClicks, setWrongClicks] = useState(0); 
     const timerRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
@@ -373,7 +373,7 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
             
             const baseScore = foundRisks.length * 10; 
             const timeBonus = (foundRisks.length === scene.risks.length) ? Math.floor((timeLeft / scene.timeLimit) * 50) : 0; 
-            const penaltyScore = wrongClicks * 1.5; // หักผิดครั้งละ 1.5
+            const penaltyScore = wrongClicks * 1.5; 
             
             setTimeout(() => onFinish({ found: foundRisks, score: baseScore, timeBonus: timeBonus, penalty: penaltyScore }), 500);
         }
@@ -404,7 +404,7 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
         }
         if (!hit && !alreadyFound) {
             playSound('error'); const mid = Date.now();
-            setWrongClicks(prev => prev + 1); // บันทึกว่ากดผิดเพิ่ม
+            setWrongClicks(prev => prev + 1); 
             setMissedTaps((prev:any) => [...prev, { x, y, id: mid }]);
             setTimeout(() => setMissedTaps((prev:any) => prev.filter((m:any) => m.id !== mid)), 500);
         }
@@ -427,7 +427,7 @@ const GameScene = ({ scene, onFinish, playSound }: any) => {
                 <div className="flex flex-col"><span className="text-[#00d2ff] font-mono text-sm tracking-widest">SPOT THE DIFFERENCE</span><h2 className="text-white text-xl md:text-2xl font-bold tracking-wider">{scene.title}</h2></div>
                 <div className="flex items-center gap-4 md:gap-8">
                     <div className="flex flex-col items-center bg-black/40 px-4 py-2 border border-[#00ff88]/30 rounded-lg"><span className="text-[#00ff88] text-[10px] font-mono mb-1">FOUND</span><div className="text-2xl font-mono text-[#00ff88]">{foundRisks.length} <span className="text-gray-500 text-lg">/ {scene.risks.length}</span></div></div>
-                    <div className={`flex flex-col items-center px-4 py-2 border rounded-lg ${timeLeft <= 3 ? 'bg-red-900/20 border-red-500 animate-pulse' : 'bg-black/40 border-white/10'}`}><span className="text-gray-400 text-[10px] font-mono mb-1">TIME LEFT</span><div className={`text-2xl font-mono ${timeLeft <= 3 ? 'text-red-500' : 'text-white'}`}>00:{String(timeLeft).padStart(2, '0')}</div></div>
+                    <div className={`flex flex-col items-center px-4 py-2 border rounded-lg ${timeLeft <= 5 ? 'bg-red-900/20 border-red-500 animate-pulse' : 'bg-black/40 border-white/10'}`}><span className="text-gray-400 text-[10px] font-mono mb-1">TIME LEFT</span><div className={`text-2xl font-mono ${timeLeft <= 5 ? 'text-red-500' : 'text-white'}`}>00:{String(timeLeft).padStart(2, '0')}</div></div>
                 </div>
             </div>
             <div className="flex-1 flex flex-col md:flex-row gap-2 md:gap-4 p-2 md:p-4 items-center justify-center bg-black overflow-hidden">
@@ -486,7 +486,6 @@ const AIResultScreen = ({ scene, scoreData, onComplete }: any) => {
                     <AnimatePresence>
                         {scene.risks.map((risk:any) => {
                             const isFound = scoreData?.found.includes(risk.id);
-                            // แก้ไขบัก toUpperCase() เผื่อกรณีไม่ได้พิมพ์ชื่อจุด
                             const riskNameStr = risk.name ? String(risk.name).toUpperCase() : 'UNKNOWN';
                             
                             return visible.includes(risk.id) && (
@@ -619,7 +618,7 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
 
     const createNewScene = () => {
         setSelectedScene({
-            id: `scene-${Date.now()}`, title: "New Scene", originalImage: "/Scene-01-Original.jpg", modifiedImage: "/Scene-01-Modified.jpg", timeLimit: 15, risks: []
+            id: `scene-${Date.now()}`, title: "New Scene", originalImage: "/Scene-01-Original.jpg", modifiedImage: "/Scene-01-Modified.jpg", timeLimit: 30, risks: []
         });
     };
 
@@ -704,11 +703,12 @@ const AdminDashboard = ({ scenes, reloadData }: any) => {
                 {selectedScene ? (
                     <div className="col-span-1 lg:col-span-3 space-y-6">
                         {/* Config Form */}
-                        <div className="bg-gray-800 p-4 rounded-lg grid grid-cols-2 gap-4">
+                        <div className="bg-gray-800 p-4 rounded-lg grid grid-cols-2 md:grid-cols-3 gap-4">
                             <div><label className="text-xs text-gray-400">Scene ID</label><input type="text" value={selectedScene.id} readOnly className="w-full bg-gray-900 p-2 rounded text-sm text-gray-500" /></div>
                             <div><label className="text-xs text-gray-400">ชื่อด่าน (Title)</label><input type="text" value={selectedScene.title} onChange={e => setSelectedScene({...selectedScene, title: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
-                            <div><label className="text-xs text-gray-400">รูปภาพ Original (ไฟล์ใน /public)</label><input type="text" value={selectedScene.originalImage} onChange={e => setSelectedScene({...selectedScene, originalImage: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
-                            <div><label className="text-xs text-gray-400">รูปภาพ Modified (รูปมีจุดผิด)</label><input type="text" value={selectedScene.modifiedImage} onChange={e => setSelectedScene({...selectedScene, modifiedImage: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
+                            <div><label className="text-xs text-gray-400">เวลา (วินาที)</label><input type="number" value={selectedScene.timeLimit} onChange={e => setSelectedScene({...selectedScene, timeLimit: Number(e.target.value)})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
+                            <div className="md:col-span-1"><label className="text-xs text-gray-400">รูปภาพ Original (ไฟล์ใน /public)</label><input type="text" value={selectedScene.originalImage} onChange={e => setSelectedScene({...selectedScene, originalImage: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
+                            <div className="md:col-span-2"><label className="text-xs text-gray-400">รูปภาพ Modified (รูปมีจุดผิด)</label><input type="text" value={selectedScene.modifiedImage} onChange={e => setSelectedScene({...selectedScene, modifiedImage: e.target.value})} className="w-full bg-gray-700 p-2 rounded text-sm" /></div>
                         </div>
 
                         {/* Visual Editor */}
